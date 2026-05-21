@@ -2,9 +2,10 @@
 Entry point — runs the scheduler and orchestrates all reports.
 
 Usage:
-    python main.py            # start scheduler (runs indefinitely)
+    python main.py                   # start scheduler (runs indefinitely)
     python main.py --now reportei-daily
     python main.py --now reportei-monthly
+    python main.py --now reportei-weekly
     python main.py --now gads-daily
     python main.py --now gads-monthly
     python main.py --now all
@@ -20,7 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 from config import config
 from src import reportei_client as reportei_module
 from src import analyzer
-from src.pdf_generator import generate_pdf, pdf_path
+from src.html_generator import generate_html, html_path
 from src import email_sender
 from src import git_manager
 
@@ -35,20 +36,18 @@ TZ = pytz.timezone(config.TIMEZONE)
 reportei = reportei_module.ReporteiClient()
 
 
-# ── Cached dashboard ID ─────────────────────────────────────────────────────
-
-# ── Job: Reportei daily ─────────────────────────────────────────────────────
+# ── Job: Reportei daily ──────────────────────────────────────────────────────
 
 def job_reportei_daily(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[reportei-daily] Iniciando analise para %s", today)
     try:
-        raw = reportei.fetch_daily_data(today)
+        raw      = reportei.fetch_daily_data(today)
         analysis = analyzer.analyze_reportei_daily(raw, today)
 
-        path = pdf_path("reportei_daily", today.strftime("%Y-%m-%d"))
-        generate_pdf(analysis, path)
-        log.info("[reportei-daily] PDF gerado: %s", path)
+        path = html_path("reportei_daily", today.strftime("%Y-%m-%d"))
+        generate_html(analysis, path)
+        log.info("[reportei-daily] HTML gerado: %s", path)
 
         email_sender.send_reportei_daily(path, today)
         git_manager.commit_report("reportei-daily", today.strftime("%Y-%m-%d"))
@@ -58,18 +57,18 @@ def job_reportei_daily(run_date: date | None = None):
         log.exception("[reportei-daily] Erro: %s", e)
 
 
-# ── Job: Reportei monthly (every Monday) ───────────────────────────────────
+# ── Job: Reportei monthly (every Monday) ────────────────────────────────────
 
 def job_reportei_monthly(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[reportei-monthly] Iniciando relatorio mensal para %s", today)
     try:
-        raw = reportei.fetch_monthly_period_data(today)
+        raw      = reportei.fetch_monthly_period_data(today)
         analysis = analyzer.analyze_reportei_monthly(raw)
 
-        path = pdf_path("reportei_monthly", today.strftime("%Y-%m-%d"))
-        generate_pdf(analysis, path)
-        log.info("[reportei-monthly] PDF gerado: %s", path)
+        path = html_path("reportei_monthly", today.strftime("%Y-%m-%d"))
+        generate_html(analysis, path)
+        log.info("[reportei-monthly] HTML gerado: %s", path)
 
         period_start = today.replace(day=1)
         email_sender.send_reportei_monthly(path, period_start, today)
@@ -80,18 +79,45 @@ def job_reportei_monthly(run_date: date | None = None):
         log.exception("[reportei-monthly] Erro: %s", e)
 
 
-# ── Job: Google Ads daily ───────────────────────────────────────────────────
+# ── Job: Reportei weekly (every Monday) ─────────────────────────────────────
+
+def job_reportei_weekly(run_date: date | None = None):
+    today = run_date or date.today()
+    log.info("[reportei-weekly] Iniciando relatorio semanal para %s", today)
+    try:
+        raw      = reportei.fetch_weekly_data(today)
+        analysis = analyzer.analyze_weekly(raw)
+
+        path = html_path("reportei_weekly", today.strftime("%Y-%m-%d"))
+        generate_html(analysis, path)
+        log.info("[reportei-weekly] HTML gerado: %s", path)
+
+        # Derive week_start and week_end from the analysis period label
+        # Fall back to fetching directly from raw data
+        first_int = next(iter(raw.values()), {})
+        week_start = first_int.get("current_period", {}).get("start", today)
+        week_end   = first_int.get("current_period", {}).get("end",   today)
+
+        email_sender.send_reportei_weekly(path, week_start, week_end)
+        git_manager.commit_report("reportei-weekly", today.strftime("%Y-%m-%d"))
+        log.info("[reportei-weekly] Concluido.")
+
+    except Exception as e:
+        log.exception("[reportei-weekly] Erro: %s", e)
+
+
+# ── Job: Google Ads daily ────────────────────────────────────────────────────
 
 def job_gads_daily(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[gads-daily] Iniciando analise Google Ads para %s", today)
     try:
-        raw = reportei.fetch_gads_daily(today)
+        raw      = reportei.fetch_gads_daily(today)
         analysis = analyzer.analyze_google_ads_daily(raw)
 
-        path = pdf_path("gads_daily", today.strftime("%Y-%m-%d"))
-        generate_pdf(analysis, path)
-        log.info("[gads-daily] PDF gerado: %s", path)
+        path = html_path("gads_daily", today.strftime("%Y-%m-%d"))
+        generate_html(analysis, path)
+        log.info("[gads-daily] HTML gerado: %s", path)
 
         email_sender.send_google_ads_daily(path, today)
         git_manager.commit_report("gads-daily", today.strftime("%Y-%m-%d"))
@@ -101,18 +127,18 @@ def job_gads_daily(run_date: date | None = None):
         log.exception("[gads-daily] Erro: %s", e)
 
 
-# ── Job: Google Ads monthly (every Monday) ─────────────────────────────────
+# ── Job: Google Ads monthly (every Monday) ──────────────────────────────────
 
 def job_gads_monthly(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[gads-monthly] Iniciando relatorio mensal Google Ads para %s", today)
     try:
-        raw = reportei.fetch_gads_monthly(today)
+        raw      = reportei.fetch_gads_monthly(today)
         analysis = analyzer.analyze_google_ads_monthly(raw)
 
-        path = pdf_path("gads_monthly", today.strftime("%Y-%m-%d"))
-        generate_pdf(analysis, path)
-        log.info("[gads-monthly] PDF gerado: %s", path)
+        path = html_path("gads_monthly", today.strftime("%Y-%m-%d"))
+        generate_html(analysis, path)
+        log.info("[gads-monthly] HTML gerado: %s", path)
 
         period_start = today.replace(day=1)
         email_sender.send_google_ads_monthly(path, period_start, today)
@@ -123,16 +149,16 @@ def job_gads_monthly(run_date: date | None = None):
         log.exception("[gads-monthly] Erro: %s", e)
 
 
-# ── Monday combined job ─────────────────────────────────────────────────────
+# ── Monday combined job ──────────────────────────────────────────────────────
 
 def job_monday(run_date: date | None = None):
     """
-    Every Monday: runs all four jobs (daily + monthly for both sources).
-    The daily jobs still run at 12h daily; the monthly extras are Monday-only.
+    Every Monday: runs all five jobs (daily + monthly + weekly for Reportei, daily + monthly for Ads).
     """
     today = run_date or date.today()
     job_reportei_daily(today)
     job_reportei_monthly(today)
+    job_reportei_weekly(today)
     job_gads_daily(today)
     job_gads_monthly(today)
 
@@ -145,12 +171,12 @@ def job_weekday(run_date: date | None = None):
     job_gads_daily(today)
 
 
-# ── Scheduler setup ─────────────────────────────────────────────────────────
+# ── Scheduler setup ──────────────────────────────────────────────────────────
 
 def start_scheduler():
     scheduler = BlockingScheduler(timezone=TZ)
 
-    # Mon–Sun daily at 12:00 (non-Monday: only daily reports)
+    # Tue–Sun at 12:00 — daily reports only
     scheduler.add_job(
         job_weekday,
         trigger=CronTrigger(day_of_week="tue,wed,thu,fri,sat,sun", hour=12, minute=0, timezone=TZ),
@@ -159,12 +185,12 @@ def start_scheduler():
         misfire_grace_time=3600,
     )
 
-    # Every Monday at 12:00 (daily + monthly reports)
+    # Every Monday at 12:00 — daily + monthly + weekly reports
     scheduler.add_job(
         job_monday,
         trigger=CronTrigger(day_of_week="mon", hour=12, minute=0, timezone=TZ),
         id="monday_full",
-        name="Segunda-feira: diario + mensal",
+        name="Segunda-feira: diario + mensal + semanal",
         misfire_grace_time=3600,
     )
 
@@ -179,16 +205,18 @@ def start_scheduler():
         log.info("Scheduler encerrado.")
 
 
-# ── CLI manual trigger ──────────────────────────────────────────────────────
+# ── CLI manual trigger ───────────────────────────────────────────────────────
 
 _JOB_MAP = {
-    "reportei-daily": job_reportei_daily,
+    "reportei-daily":   job_reportei_daily,
     "reportei-monthly": job_reportei_monthly,
-    "gads-daily": job_gads_daily,
-    "gads-monthly": job_gads_monthly,
+    "reportei-weekly":  job_reportei_weekly,
+    "gads-daily":       job_gads_daily,
+    "gads-monthly":     job_gads_monthly,
     "all": lambda: (
         job_reportei_daily(),
         job_reportei_monthly(),
+        job_reportei_weekly(),
         job_gads_daily(),
         job_gads_monthly(),
     ),

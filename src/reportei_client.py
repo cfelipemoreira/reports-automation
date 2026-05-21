@@ -283,6 +283,42 @@ class ReporteiClient:
             "_raw": current,
         }
 
+    def fetch_weekly_data(self, target_date: date) -> dict:
+        """
+        Fetches last full week (Mon–Sun before target_date) for all [WEEKLY] TT integrations,
+        compared with the same weekday range 4 weeks prior.
+        Returns: { integration_name: { "data": {...}, "current_period": {...}, "comparison_period": {...} } }
+        """
+        # Last full Mon–Sun (week ending on the most recent Sunday)
+        days_since_monday = target_date.weekday()  # 0=Mon, 6=Sun
+        last_sunday  = target_date - timedelta(days=days_since_monday + 1)
+        last_monday  = last_sunday - timedelta(days=6)
+
+        # Same weekday range, 4 weeks earlier
+        comp_monday = last_monday  - timedelta(weeks=4)
+        comp_sunday = last_sunday  - timedelta(weeks=4)
+
+        results = {}
+        for integration in DASHBOARD_INTEGRATIONS:
+            int_id  = integration["id"]
+            name    = integration["name"]
+            metrics = integration["metrics"]
+
+            data = self.get_metrics(
+                int_id, last_monday, last_sunday, metrics,
+                comparison_start=comp_monday,
+                comparison_end=comp_sunday,
+            )
+
+            results[name] = {
+                "integration_id": int_id,
+                "data": data,
+                "current_period":    {"start": last_monday,  "end": last_sunday},
+                "comparison_period": {"start": comp_monday,  "end": comp_sunday},
+            }
+
+        return results
+
     def fetch_gads_monthly(self, target_date: date) -> dict:
         """
         Fetches Google Ads metrics from 1st of month to target_date vs same period last month.
