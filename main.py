@@ -19,7 +19,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import config
 from src import reportei_client as reportei_module
-from src import google_ads_client as gads
 from src import analyzer
 from src.pdf_generator import generate_pdf, pdf_path
 from src import email_sender
@@ -87,7 +86,7 @@ def job_gads_daily(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[gads-daily] Iniciando analise Google Ads para %s", today)
     try:
-        raw = gads.fetch_daily_data(today)
+        raw = reportei.fetch_gads_daily(today)
         analysis = analyzer.analyze_google_ads_daily(raw)
 
         path = pdf_path("gads_daily", today.strftime("%Y-%m-%d"))
@@ -108,7 +107,7 @@ def job_gads_monthly(run_date: date | None = None):
     today = run_date or date.today()
     log.info("[gads-monthly] Iniciando relatorio mensal Google Ads para %s", today)
     try:
-        raw = gads.fetch_monthly_period_data(today)
+        raw = reportei.fetch_gads_monthly(today)
         analysis = analyzer.analyze_google_ads_monthly(raw)
 
         path = pdf_path("gads_monthly", today.strftime("%Y-%m-%d"))

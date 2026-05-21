@@ -242,6 +242,85 @@ class ReporteiClient:
 
         return results
 
+    # ── Google Ads dedicated helpers (via Reportei, no direct API needed) ───
+
+    def fetch_gads_daily(self, target_date: date) -> dict:
+        """
+        Fetches Google Ads metrics for target_date vs previous day.
+        Returns structured data compatible with analyzer.analyze_google_ads_daily().
+        """
+        prev_day = target_date - timedelta(days=1)
+        metrics = METRICS_GADS
+
+        current = self.get_metrics(INTEGRATION_GADS, target_date, target_date, metrics,
+                                   comparison_start=prev_day, comparison_end=prev_day)
+
+        def _val(ref): return current.get(ref, {}).get("current", 0) or 0
+        def _comp(ref): return current.get(ref, {}).get("comparison", 0) or 0
+
+        def _aggregate(val_fn):
+            impressions = val_fn("gads:impressions")
+            clicks      = val_fn("gads:clicks")
+            cost        = val_fn("gads:cost_micros")
+            conversions = val_fn("gads:conversions")
+            return {
+                "impressions": impressions,
+                "clicks": clicks,
+                "cost": cost,
+                "conversions": conversions,
+                "ctr": val_fn("gads:ctr") * 100 if val_fn("gads:ctr") < 1 else val_fn("gads:ctr"),
+                "avg_cpc": val_fn("gads:average_cpc"),
+                "cost_per_conversion": val_fn("gads:cost_per_conversion"),
+                "roas": val_fn("gads:roas"),
+            }
+
+        return {
+            "date": target_date,
+            "prev_date": prev_day,
+            "current": _aggregate(_val),
+            "previous": _aggregate(_comp),
+            "campaigns": [],  # top_campaigns via Reportei requires datatable_v1 — enhancement
+            "_raw": current,
+        }
+
+    def fetch_gads_monthly(self, target_date: date) -> dict:
+        """
+        Fetches Google Ads metrics from 1st of month to target_date vs same period last month.
+        Returns structured data compatible with analyzer.analyze_google_ads_monthly().
+        """
+        current_start = target_date.replace(day=1)
+        current_end   = target_date
+
+        last_month      = target_date.month - 1 if target_date.month > 1 else 12
+        last_month_year = target_date.year if target_date.month > 1 else target_date.year - 1
+        comparison_start = target_date.replace(year=last_month_year, month=last_month, day=1)
+        comparison_end   = target_date.replace(year=last_month_year, month=last_month)
+
+        metrics = METRICS_GADS
+        data = self.get_metrics(INTEGRATION_GADS, current_start, current_end, metrics,
+                                comparison_start=comparison_start,
+                                comparison_end=comparison_end)
+
+        def _agg(val_fn):
+            return {
+                "impressions":        val_fn("gads:impressions"),
+                "clicks":             val_fn("gads:clicks"),
+                "cost":               val_fn("gads:cost_micros"),
+                "conversions":        val_fn("gads:conversions"),
+                "ctr":                val_fn("gads:ctr") * 100 if val_fn("gads:ctr") < 1 else val_fn("gads:ctr"),
+                "avg_cpc":            val_fn("gads:average_cpc"),
+                "cost_per_conversion":val_fn("gads:cost_per_conversion"),
+                "roas":               val_fn("gads:roas"),
+            }
+
+        return {
+            "current_period":    {"start": current_start,    "end": current_end},
+            "comparison_period": {"start": comparison_start, "end": comparison_end},
+            "current":           _agg(lambda ref: data.get(ref, {}).get("current", 0) or 0),
+            "comparison":        _agg(lambda ref: data.get(ref, {}).get("comparison", 0) or 0),
+            "campaigns": [],
+        }
+
 
 def _to_float(val) -> float:
     if val is None:
